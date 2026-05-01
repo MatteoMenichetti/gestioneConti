@@ -4,4 +4,6 @@ using FormatoFogliSpesa;
 
 Console.WriteLine("Hello, World!");
 
-Formato.AggiuntaFoglio("/Users/matteomenichetti/Desktop/Spesa.xlsx", 2027);
+Formato.AggiornaFormulaStipendio("/Users/matteomenichetti/Desktop/Spesa.xlsx", 2026);
+Formato.AggiornaFormuleTelefono("/Users/matteomenichetti/Desktop/Spesa.xlsx", 2026);
+Formato.AggiornaFormuleAffitto("/Users/matteomenichetti/Desktop/Spesa.xlsx", 2026);

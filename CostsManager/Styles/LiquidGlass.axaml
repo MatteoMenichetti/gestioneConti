@@ -1,0 +1,154 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ── GLASS CARD ─────────────────────────────────────────── -->
+    <Style Selector="Border.glass-card">
+        <Setter Property="Background" Value="#22FFFFFF"/>
+        <Setter Property="BorderBrush" Value="#55FFFFFF"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="20"/>
+        <Setter Property="Padding" Value="28"/>
+        <Setter Property="BoxShadow" Value="0 8 32 0 #33000000, inset 0 1 0 0 #40FFFFFF"/>
+    </Style>
+
+    <!-- ── GLASS BUTTON (primary) ─────────────────────────────── -->
+    <Style Selector="Button.glass-btn">
+        <Setter Property="Background" Value="#30FFFFFF"/>
+        <Setter Property="Foreground" Value="#EEFFFFFF"/>
+        <Setter Property="BorderBrush" Value="#60FFFFFF"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="14"/>
+        <Setter Property="Padding" Value="20,14"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.18"/>
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.14"/>
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Button.glass-btn:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#50FFFFFF"/>
+    </Style>
+    <Style Selector="Button.glass-btn:pressed /template/ ContentPresenter">
+        <Setter Property="Background" Value="#70FFFFFF"/>
+        <Setter Property="RenderTransform" Value="scale(0.97)"/>
+    </Style>
+
+    <!-- ── ACCENT BUTTON (confirm) ────────────────────────────── -->
+    <Style Selector="Button.glass-btn-accent">
+        <Setter Property="Background" Value="#5500C4F4"/>
+        <Setter Property="Foreground" Value="#EEFFFFFF"/>
+        <Setter Property="BorderBrush" Value="#9900C4F4"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="14"/>
+        <Setter Property="Padding" Value="20,14"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.18"/>
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Button.glass-btn-accent:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#8800C4F4"/>
+    </Style>
+    <Style Selector="Button.glass-btn-accent:pressed /template/ ContentPresenter">
+        <Setter Property="Background" Value="#BB00C4F4"/>
+    </Style>
+
+    <!-- ── SUCCESS BUTTON (update) ────────────────────────────── -->
+    <Style Selector="Button.glass-btn-success">
+        <Setter Property="Background" Value="#4400D67E"/>
+        <Setter Property="Foreground" Value="#EEFFFFFF"/>
+        <Setter Property="BorderBrush" Value="#8800D67E"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="14"/>
+        <Setter Property="Padding" Value="20,14"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.18"/>
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Button.glass-btn-success:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#6600D67E"/>
+    </Style>
+    <Style Selector="Button.glass-btn-success:pressed /template/ ContentPresenter">
+        <Setter Property="Background" Value="#9900D67E"/>
+    </Style>
+
+    <!-- ── WARN BUTTON (phone) ────────────────────────────────── -->
+    <Style Selector="Button.glass-btn-warn">
+        <Setter Property="Background" Value="#44FF9500"/>
+        <Setter Property="Foreground" Value="#EEFFFFFF"/>
+        <Setter Property="BorderBrush" Value="#88FF9500"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="14"/>
+        <Setter Property="Padding" Value="20,14"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.18"/>
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Button.glass-btn-warn:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#66FF9500"/>
+    </Style>
+    <Style Selector="Button.glass-btn-warn:pressed /template/ ContentPresenter">
+        <Setter Property="Background" Value="#99FF9500"/>
+    </Style>
+
+    <!-- ── GLASS INPUT ────────────────────────────────────────── -->
+    <Style Selector="TextBox.glass-input">
+        <Setter Property="Background" Value="#20FFFFFF"/>
+        <Setter Property="Foreground" Value="#EEFFFFFF"/>
+        <Setter Property="BorderBrush" Value="#50FFFFFF"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="12"/>
+        <Setter Property="Padding" Value="16,12"/>
+        <Setter Property="FontSize" Value="15"/>
+        <Setter Property="CaretBrush" Value="#BBFFFFFF"/>
+        <Setter Property="SelectionBrush" Value="#4400C4F4"/>
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="BorderBrush" Duration="0:0:0.2"/>
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="TextBox.glass-input:focus">
+        <Setter Property="BorderBrush" Value="#CC00C4F4"/>
+    </Style>
+
+    <!-- Status label -->
+    <Style Selector="TextBlock.status-ok">
+        <Setter Property="Foreground" Value="#BB00D67E"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="TextBlock.status-err">
+        <Setter Property="Foreground" Value="#BBFF4455"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="TextBlock.status-info">
+        <Setter Property="Foreground" Value="#BB99DDFF"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+
+</Styles>

@@ -1,3 +1,4 @@
 <Solution>
+  <Project Path="CostsManager\CostsManager.csproj" />
   <Project Path="FormatoFogliSpesa/FormatoFogliSpesa.csproj" />
 </Solution>
