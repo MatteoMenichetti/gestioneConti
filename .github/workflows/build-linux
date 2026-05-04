@@ -1,8 +1,8 @@
-name: Build & Release
+name: Build & Release – Linux & macOS
 
 # ─── TRIGGER ────────────────────────────────────────────────────────────────
 # • Push di un tag vX.Y.Z  → build + GitHub Release con binari allegati
-# • workflow_dispatch       → build manuale senza release (utile per test)
+# • workflow_dispatch       → build + Release con versione "dev" (pre-release)
 on:
   push:
     tags:
@@ -10,7 +10,6 @@ on:
   workflow_dispatch:
 
 # ─── PERMESSI ───────────────────────────────────────────────────────────────
-# "contents: write" è necessario per creare la GitHub Release e caricare gli asset
 permissions:
   contents: write
 
@@ -18,182 +17,277 @@ permissions:
 jobs:
 
   # ══════════════════════════════════════════════════════════════════════════
-  # JOB 1 – BUILD
-  # Strategia a matrice: compila in parallelo per ogni combinazione OS / RID.
+  # JOB 1 – ESTRAI VERSIONE
+  # Job separato così la versione è disponibile per tutti i job successivi
+  # senza doverla ricalcolare su ogni runner della matrice.
+  # ══════════════════════════════════════════════════════════════════════════
+  version:
+    name: Extract version
+    runs-on: ubuntu-latest
+
+    outputs:
+      semver:     ${{ steps.v.outputs.semver }}
+      tag:        ${{ steps.v.outputs.tag }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+
+    steps:
+      - name: Compute version string
+        id: v
+        run: |
+          REF="${{ github.ref_name }}"
+
+          # Tag push → usa il tag (es. "v1.2.3")
+          # workflow_dispatch → versione dev con SHA abbreviato
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            SEMVER="${REF#v}"          # "v1.2.3" → "1.2.3"
+            TAG="$REF"
+          else
+            SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            SEMVER="0.0.0-dev.${SHA}"
+            TAG="dev-${SHA}"
+          fi
+
+          # Pre-release se contiene -alpha / -beta / -rc oppure è una build dev
+          if [[ "$SEMVER" == *"-alpha"* || "$SEMVER" == *"-beta"* || \
+                "$SEMVER" == *"-rc"*    || "$SEMVER" == *"-dev"* ]]; then
+            PRERELEASE="true"
+          else
+            PRERELEASE="false"
+          fi
+
+          echo "semver=$SEMVER"         >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"               >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+          echo "▶ Version : $SEMVER"
+          echo "▶ Tag     : $TAG"
+          echo "▶ Pre     : $PRERELEASE"
+
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 2 – BUILD
+  # Matrice parallela: linux-x64, osx-x64, osx-arm64.
   # ══════════════════════════════════════════════════════════════════════════
   build:
     name: Build [${{ matrix.rid }}]
+    needs: version
 
     strategy:
-      fail-fast: false          # Se un target fallisce, gli altri continuano
+      fail-fast: false
       matrix:
         include:
 
-          # Linux x64 ─────────────────────────────────────────────────────
-          - os: ubuntu-latest
-            rid: linux-x64
+          # Linux x64 ──────────────────────────────────────────────────────
+          - os:            ubuntu-latest
+            rid:           linux-x64
             artifact_name: app-linux-x64
-            binary_ext: ""       # Nessuna estensione su Linux
 
           # macOS Intel ────────────────────────────────────────────────────
-          - os: macos-latest
-            rid: osx-x64
+          - os:            macos-latest
+            rid:           osx-x64
             artifact_name: app-osx-x64
-            binary_ext: ""
 
-          # macOS Apple Silicon ─────────────────────────────────────────────
-          # NOTA: osx-arm64 richiede un runner macOS; non si cross-compila
-          # in modo affidabile da Linux a causa dei binding nativi di Avalonia.
-          - os: macos-latest
-            rid: osx-arm64
+          # macOS Apple Silicon ────────────────────────────────────────────
+          # Non cross-compilato: gira sul runner macOS per evitare problemi
+          # con le librerie native di Avalonia/SkiaSharp.
+          - os:            macos-latest
+            rid:           osx-arm64
             artifact_name: app-osx-arm64
-            binary_ext: ""
 
     runs-on: ${{ matrix.os }}
 
     steps:
 
-      # 1. Checkout del codice sorgente (incluse le submodule se presenti)
+      # 1. Checkout
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # 2. Installa la versione di .NET specificata
-      #    ⚠️  Cambia "9.0.x" con la versione del tuo global.json o .csproj
+      # 2. .NET SDK
+      #    ⚠️  Aggiorna la versione se necessario
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "9.0.x"
 
-      # 3. Cache dei pacchetti NuGet → risparmia 1-3 minuti per run
+      # 3. Cache NuGet
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          # La chiave cambia solo se cambia il lock-file dei pacchetti
           key: nuget-${{ matrix.rid }}-${{ hashFiles('**/*.csproj', '**/packages.lock.json') }}
           restore-keys: |
             nuget-${{ matrix.rid }}-
             nuget-
 
-      # 4. Ripristino delle dipendenze
+      # 4. Restore
+      #    Si punta al progetto UI: dotnet risolve automaticamente anche il backend
+      #    referenziato tramite <ProjectReference> nel .csproj della UI.
+      #    ⚠️  Sostituisci con il percorso del tuo progetto UI
       - name: Restore dependencies
-        run: dotnet restore
-        # ⚠️  Se la tua solution/.sln non è nella root, specifica il percorso:
-        # run: dotnet restore src/MyApp.sln
+        run: dotnet restore src/MyApp.UI/MyApp.UI.csproj
 
-      # 5. Esegui i test (rimuovi questo step se non hai test automatici)
+      # 5. Test
+      #    Rimuovi se non hai test automatici.
+      #    Su Linux con UI Avalonia aggiungi: xvfb-run --auto-servernum dotnet test ...
       - name: Run tests
-        run: dotnet test --no-restore --configuration Release --verbosity minimal
-        # ⚠️  Se i test dell'UI richiedono un display (es. Avalonia headless):
-        # run: xvfb-run dotnet test ...   # solo su Linux
-
-      # 6. Pubblica l'eseguibile self-contained come file singolo
-      #
-      #    Opzioni chiave:
-      #      --self-contained true      → include il runtime .NET nel binario
-      #      -p:PublishSingleFile=true  → un unico file eseguibile
-      #      -p:EnableCompressionInSingleFile=true → riduce le dimensioni (~30%)
-      #      -p:IncludeNativeLibrariesForSelfExtract=true → embedding lib native
-      #      -p:StripSymbols=true       → rimuove i simboli di debug su Linux/macOS
-      #
-      #    ⚠️  Sostituisci "src/MyApp/MyApp.csproj" con il percorso del tuo progetto principale
-      - name: Publish single-file executable
         run: |
-          dotnet publish src/MyApp/MyApp.csproj \
+          dotnet test src/MyApp.UI/MyApp.UI.csproj \
+            --no-restore \
             --configuration Release \
-            --runtime ${{ matrix.rid }} \
+            --verbosity minimal
+
+      # 6. Publish
+      #    Si pubblica SOLO il progetto UI: poiché il backend è dichiarato come
+      #    <ProjectReference> nel .csproj della UI, dotnet include automaticamente
+      #    tutto il codice del backend nell'eseguibile finale. Non serve pubblicare
+      #    il backend separatamente.
+      #    ⚠️  Sostituisci "src/MyApp.UI/MyApp.UI.csproj" con il tuo progetto UI.
+      #    ⚠️  Sostituisci <AssemblyName> della UI nel commento dello step 7.
+      - name: Publish self-contained executable
+        run: |
+          dotnet publish src/MyApp.UI/MyApp.UI.csproj \
+            --configuration Release \
+            --runtime "${{ matrix.rid }}" \
             --self-contained true \
             -p:PublishSingleFile=true \
             -p:EnableCompressionInSingleFile=true \
             -p:IncludeNativeLibrariesForSelfExtract=true \
             -p:StripSymbols=true \
-            --output ./dist/${{ matrix.rid }}
+            --output "$GITHUB_WORKSPACE/dist/${{ matrix.rid }}"
 
-      # 7. Rendi eseguibile il binario (necessario su Linux/macOS dopo publish)
+      # 7. Permessi eseguibile
+      #    ⚠️  Sostituisci "MyApp.UI" con il valore di <AssemblyName> nel tuo .csproj UI
+      #       (se non è impostato esplicitamente, coincide con il nome del progetto)
       - name: Set executable permission
-        run: |
-          # ⚠️  Sostituisci "MyApp" con il nome del tuo eseguibile (= AssemblyName nel .csproj)
-          chmod +x ./dist/${{ matrix.rid }}/MyApp${{ matrix.binary_ext }}
+        run: chmod +x "$GITHUB_WORKSPACE/dist/${{ matrix.rid }}/MyApp.UI"
 
-      # 8. Crea uno zip dell'artefatto per upload e allegato alla release
-      - name: Package artifact (zip)
+      # 8. Crea lo zip con percorsi assoluti espliciti
+      #    Il nome include la versione per renderlo univoco nella Release.
+      #    Esempio output: app-linux-x64-1.2.3.zip
+      - name: Package artifact as zip
         run: |
-          cd ./dist/${{ matrix.rid }}
-          zip -r ../../${{ matrix.artifact_name }}.zip .
+          VERSION="${{ needs.version.outputs.semver }}"
+          ZIP_NAME="${{ matrix.artifact_name }}-${VERSION}.zip"
+          ZIP_PATH="$GITHUB_WORKSPACE/${ZIP_NAME}"
+          SRC_DIR="$GITHUB_WORKSPACE/dist/${{ matrix.rid }}"
 
-      # 9. Carica l'artifact per il job successivo (release) e per download diretto
+          echo "▶ Zipping  : $SRC_DIR"
+          echo "▶ Output   : $ZIP_PATH"
+
+          # -j → non include i path intermedi nello zip (file flat nella root dello zip)
+          # -r → ricorsivo (utile se publish produce più file)
+          zip -j -r "$ZIP_PATH" "$SRC_DIR"
+
+          # Verifica che il file sia stato creato e non sia vuoto
+          if [[ ! -f "$ZIP_PATH" ]]; then
+            echo "❌ ZIP non creato: $ZIP_PATH"
+            exit 1
+          fi
+
+          SIZE=$(du -sh "$ZIP_PATH" | cut -f1)
+          echo "✅ Creato $ZIP_NAME ($SIZE)"
+
+          # Esporta il path assoluto per lo step di upload
+          echo "ZIP_PATH=$ZIP_PATH" >> "$GITHUB_ENV"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+
+      # 9. Upload artifact
+      #    Ogni zip viene caricato come artifact separato identificato da "name".
+      #    Il job "release" li scaricherà tutti con download-artifact senza filtri.
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}.zip
-          retention-days: 7        # Conserva per 7 giorni (gratis su GitHub)
-          if-no-files-found: error
+          name: ${{ matrix.artifact_name }}   # Identificatore dell'artifact su GitHub
+          path: ${{ env.ZIP_PATH }}            # Path assoluto al file zip
+          retention-days: 7
+          if-no-files-found: error            # Fallisce esplicitamente se lo zip manca
 
 
   # ══════════════════════════════════════════════════════════════════════════
-  # JOB 2 – RELEASE
-  # Gira solo su push di tag (non su workflow_dispatch).
-  # Aspetta che tutti i build completino, poi crea la GitHub Release
-  # e vi allega gli zip prodotti dalla matrice.
+  # JOB 3 – RELEASE
+  # Crea (o aggiorna) la GitHub Release e vi allega tutti gli zip.
+  # Gira sia su tag push che su workflow_dispatch.
+  #   • Tag push         → release stabile / pre-release in base al tag
+  #   • workflow_dispatch → pre-release con versione "dev-<sha>"
   # ══════════════════════════════════════════════════════════════════════════
   release:
-    name: Create GitHub Release
-    needs: build
+    name: Create / Update GitHub Release
+    needs: [version, build]
     runs-on: ubuntu-latest
-
-    # Esegui questo job SOLO quando il trigger è un tag push
-    if: startsWith(github.ref, 'refs/tags/')
 
     steps:
 
-      # Scarica tutti gli artifact prodotti dal job "build"
+      # 1. Scarica tutti gli artifact prodotti dalla matrice build.
+      #    Senza "name", download-artifact@v4 scarica TUTTO.
+      #    Struttura risultante:
+      #      ./artifacts/app-linux-x64/app-linux-x64-1.2.3.zip
+      #      ./artifacts/app-osx-x64/app-osx-x64-1.2.3.zip
+      #      ./artifacts/app-osx-arm64/app-osx-arm64-1.2.3.zip
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: ./artifacts    # Ogni artifact è in una sottocartella con il suo nome
+          path: ./artifacts
 
-      # Debug: mostra i file scaricati (rimuovibile in produzione)
+      # 2. Debug: elenca i file scaricati
       - name: List downloaded artifacts
-        run: find ./artifacts -type f | sort
+        run: |
+          echo "▶ Struttura artifacts/"
+          find ./artifacts -type f | sort
+          echo ""
+          echo "▶ Dimensioni zip"
+          find ./artifacts -name "*.zip" -exec du -sh {} \;
 
-      # Crea la release e allega i binari in un unico step
-      - name: Create GitHub Release and upload assets
+      # 3. Verifica che almeno uno zip sia presente
+      - name: Verify artifacts exist
+        run: |
+          COUNT=$(find ./artifacts -name "*.zip" | wc -l)
+          echo "▶ ZIP trovati: $COUNT"
+          if [[ "$COUNT" -eq 0 ]]; then
+            echo "❌ Nessun artifact ZIP trovato. Controlla i log del job 'build'."
+            exit 1
+          fi
+
+      # 4. Crea o aggiorna la GitHub Release
+      #
+      #    softprops/action-gh-release@v2:
+      #      • Se la release per questo tag esiste già (es. creata dal workflow Windows)
+      #        → aggiunge i file senza sovrascrivere quelli esistenti
+      #      • Se non esiste → la crea
+      #
+      #    Per workflow_dispatch: usa tag "dev-<sha>" creato nel job "version".
+      #    GitHub crea automaticamente il tag leggero se non esiste.
+      - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # Nome della release (es. "Release v1.2.3")
-          name: "Release ${{ github.ref_name }}"
+          tag_name:   ${{ needs.version.outputs.tag }}
+          name:       "Release ${{ needs.version.outputs.semver }}"
+          prerelease: ${{ needs.version.outputs.prerelease }}
+          draft:      false
 
-          # Il corpo del changelog: puoi sostituirlo con il contenuto di CHANGELOG.md
-          # usando: body_path: CHANGELOG.md
           body: |
-            ## 🚀 Release ${{ github.ref_name }}
+            ## 🚀 Release ${{ needs.version.outputs.semver }}
 
             ### Download
-            | Piattaforma        | File                          |
-            |--------------------|-------------------------------|
-            | Linux x64          | `app-linux-x64.zip`           |
-            | macOS Intel (x64)  | `app-osx-x64.zip`             |
-            | macOS Apple Silicon| `app-osx-arm64.zip`           |
+
+            | Piattaforma          | File                                                              |
+            |----------------------|-------------------------------------------------------------------|
+            | Linux x64            | `app-linux-x64-${{ needs.version.outputs.semver }}.zip`          |
+            | macOS Intel (x64)    | `app-osx-x64-${{ needs.version.outputs.semver }}.zip`            |
+            | macOS Apple Silicon  | `app-osx-arm64-${{ needs.version.outputs.semver }}.zip`          |
 
             ### Note
-            Gli eseguibili sono **self-contained**: non richiedono l'installazione del runtime .NET.
-            Su macOS potrebbe essere necessario rimuovere la quarantena:
+            Gli eseguibili sono **self-contained** e non richiedono l'installazione di .NET.
+
+            Su macOS, rimuovere l'attributo di quarantena prima di avviare:
             ```bash
             xattr -d com.apple.quarantine ./MyApp
+            chmod +x ./MyApp
             ```
 
-          # Se il tag non esiste ancora come release, la crea; altrimenti aggiorna
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+          # Glob ricorsivo su tutta la cartella artifacts/:
+          # funziona anche se uno o più target hanno fallito (zip parzialmente presenti).
+          files: ./artifacts/**/*.zip
 
-          # Allega tutti gli zip trovati nelle sottocartelle degli artifact
-          files: |
-            artifacts/app-linux-x64/app-linux-x64.zip
-            artifacts/app-osx-x64/app-osx-x64.zip
-            artifacts/app-osx-arm64/app-osx-arm64.zip
-
-          # Il token viene iniettato automaticamente da GitHub Actions
           token: ${{ secrets.GITHUB_TOKEN }}
