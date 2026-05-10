@@ -126,14 +126,14 @@ jobs:
       #    referenziato tramite <ProjectReference> nel .csproj della UI.
       #    ⚠️  Sostituisci con il percorso del tuo progetto UI
       - name: Restore dependencies
-        run: dotnet restore src/MyApp.UI/MyApp.UI.csproj
+        run: dotnet restore CostsManager/CostsManager.csproj
 
       # 5. Test
       #    Rimuovi se non hai test automatici.
       #    Su Linux con UI Avalonia aggiungi: xvfb-run --auto-servernum dotnet test ...
       - name: Run tests
         run: |
-          dotnet test src/MyApp.UI/MyApp.UI.csproj \
+          dotnet test CostsManager/CostsManager.csproj \
             --no-restore \
             --configuration Release \
             --verbosity minimal
@@ -147,7 +147,7 @@ jobs:
       #    ⚠️  Sostituisci <AssemblyName> della UI nel commento dello step 7.
       - name: Publish self-contained executable
         run: |
-          dotnet publish src/MyApp.UI/MyApp.UI.csproj \
+          dotnet publish CostsManager/CostsManager.csproj \
             --configuration Release \
             --runtime "${{ matrix.rid }}" \
             --self-contained true \
