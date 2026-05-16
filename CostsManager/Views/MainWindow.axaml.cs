@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml;
 
 namespace CostsManager.Views;
 
@@ -9,7 +10,7 @@ public partial class MainWindow : Window
 {
     public MainWindow()
     {
-        InitializeComponent();
+        AvaloniaXamlLoader.Load(this);
     }
 
     // Drag the frameless window by the title bar
