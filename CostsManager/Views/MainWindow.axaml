@@ -12,14 +12,15 @@
         Background="Transparent"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaChromeHints="NoChrome"
-        ExtendClientAreaTitleBarHeightHint="-1">
+        ExtendClientAreaTitleBarHeightHint="-1"
+        SystemDecorations="None">
 
     <Window.DataContext>
         <vm:MainViewModel />
     </Window.DataContext>
 
     <!-- Root: deep frosted background with mesh gradient -->
-    <Panel>
+    <Grid>
 
         <!-- Animated gradient background -->
         <Border>
@@ -113,7 +114,7 @@
             </Border>
 
             <!-- Scrollable body -->
-            <ScrollViewer DockPanel.Dock="Bottom" Padding="28,20,28,28">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="28,20,28,68">
                 <StackPanel Spacing="20">
 
                     <!-- ① FILE SECTION ────────────────────────── -->
@@ -263,5 +264,5 @@
                 </StackPanel>
             </ScrollViewer>
         </DockPanel>
-    </Panel>
+    </Grid>
 </Window>
