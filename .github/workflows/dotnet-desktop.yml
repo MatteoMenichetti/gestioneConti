@@ -1,7 +1,8 @@
 name: .NET Core Desktop Release
 
 on:
-  push: ["main"]
+  push:
+   branches: ["main"]
     tags:
       - 'v*' # Si attiva solo al push di un tag (es. git push origin v1.0.0)
 
