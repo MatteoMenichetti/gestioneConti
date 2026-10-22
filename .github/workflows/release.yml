@@ -1,0 +1,279 @@
+name: Build & Package
+
+# ─── TRIGGER ────────────────────────────────────────────────────────────────
+# • Push di un tag vX.Y.Z   → build + pacchetti + GitHub Release
+# • workflow_dispatch        → build + pacchetti + pre-release "dev-<sha>"
+# • pull_request su main     → solo build + pacchetti come artifact (no release)
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PROJECT:  CostsManager/CostsManager.csproj
+  APP_EXE:  CostsManager        # nome dell'eseguibile (AssemblyName)
+  APP_NAME: Gestione Conti      # nome mostrato all'utente
+  APP_FILE: GestioneConti       # prefisso dei file prodotti
+  APP_SLUG: gestione-conti      # nome per /opt, /usr/bin, .desktop
+
+jobs:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 1 – VERSIONE
+  # ══════════════════════════════════════════════════════════════════════════
+  version:
+    name: Extract version
+    runs-on: ubuntu-latest
+    outputs:
+      semver:     ${{ steps.v.outputs.semver }}
+      tag:        ${{ steps.v.outputs.tag }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - name: Compute version
+        id: v
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAG="${{ github.ref_name }}"
+            SEMVER="${TAG#v}"
+          else
+            SHA="$(echo "${{ github.sha }}" | cut -c1-7)"
+            SEMVER="0.0.0-dev.${SHA}"
+            TAG="dev-${SHA}"
+          fi
+
+          if [[ "$SEMVER" == *-* ]]; then PRERELEASE=true; else PRERELEASE=false; fi
+
+          {
+            echo "semver=$SEMVER"
+            echo "tag=$TAG"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "▶ semver=$SEMVER tag=$TAG prerelease=$PRERELEASE"
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 2 – BUILD + PACCHETTO (matrice parallela)
+  # ══════════════════════════════════════════════════════════════════════════
+  build:
+    name: Package [${{ matrix.rid }}]
+    needs: version
+    runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      SEMVER: ${{ needs.version.outputs.semver }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64,   kind: windows }
+          - { os: macos-latest,   rid: osx-arm64, kind: macos   }
+          # Cross-publish: dotnet non compila codice nativo, quindi x64 si
+          # produce senza problemi anche sul runner Apple Silicon.
+          - { os: macos-latest,   rid: osx-x64,   kind: macos   }
+          - { os: ubuntu-latest,  rid: linux-x64, kind: linux   }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ matrix.rid }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ matrix.rid }}-
+
+      # Publish self-contained (non single-file): più robusto con Avalonia/Skia
+      # e permette di affiancare all'eseguibile eventuali file di dati.
+      - name: Publish
+        run: |
+          dotnet publish "$PROJECT" \
+            --configuration Release \
+            --runtime "${{ matrix.rid }}" \
+            --self-contained true \
+            -p:Version="$SEMVER" \
+            -p:DebugType=none \
+            -p:DebugSymbols=false \
+            --output "dist/${{ matrix.rid }}"
+
+          mkdir -p out
+
+      # ─── WINDOWS: installer .exe (Inno Setup) ────────────────────────────
+      - name: Build Windows installer
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=$env:SEMVER" "/DSourceDir=$PWD\dist\${{ matrix.rid }}" "/O$PWD\out" installer\CostsManager.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # ─── macOS: .app bundle → .dmg ───────────────────────────────────────
+      - name: Build macOS dmg
+        if: matrix.kind == 'macos'
+        run: |
+          set -euo pipefail
+          RID="${{ matrix.rid }}"
+          BUNDLE="build/${APP_FILE}.app"
+          SHORT_VER="${SEMVER%%-*}"   # CFBundleVersion accetta solo X.Y.Z
+
+          rm -rf build dmg-staging
+          mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
+          cp -R "dist/$RID/." "$BUNDLE/Contents/MacOS/"
+          chmod +x "$BUNDLE/Contents/MacOS/$APP_EXE"
+
+          cat > "$BUNDLE/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>               <string>${APP_NAME}</string>
+            <key>CFBundleDisplayName</key>        <string>${APP_NAME}</string>
+            <key>CFBundleIdentifier</key>         <string>com.matteomenichetti.gestioneconti</string>
+            <key>CFBundleExecutable</key>         <string>${APP_EXE}</string>
+            <key>CFBundlePackageType</key>        <string>APPL</string>
+            <key>CFBundleVersion</key>            <string>${SHORT_VER}</string>
+            <key>CFBundleShortVersionString</key> <string>${SHORT_VER}</string>
+            <key>LSMinimumSystemVersion</key>     <string>13.0</string>
+            <key>NSHighResolutionCapable</key>    <true/>
+          </dict>
+          </plist>
+          EOF
+
+          # Firma ad-hoc (necessaria per far girare i binari arm64 senza Developer ID)
+          codesign --force --deep --sign - "$BUNDLE" \
+            || echo "::warning::Firma ad-hoc non riuscita"
+
+          mkdir -p dmg-staging
+          cp -R "$BUNDLE" dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+
+          hdiutil create \
+            -volname "$APP_NAME" \
+            -srcfolder dmg-staging \
+            -ov -format UDZO \
+            "out/${APP_FILE}-${SEMVER}-${RID}.dmg"
+
+      # ─── LINUX: pacchetto .deb ───────────────────────────────────────────
+      - name: Build Linux .deb
+        if: matrix.kind == 'linux'
+        run: |
+          set -euo pipefail
+          PKG="build/deb"
+          INSTALL_DIR="/opt/${APP_SLUG}"
+          DEB_VERSION="$(echo "$SEMVER" | sed 's/-/~/')"   # 1.2.3-rc1 → 1.2.3~rc1
+
+          rm -rf build
+          mkdir -p "$PKG/DEBIAN" "$PKG$INSTALL_DIR" "$PKG/usr/bin" "$PKG/usr/share/applications"
+
+          cp -R "dist/linux-x64/." "$PKG$INSTALL_DIR/"
+          chmod 755 "$PKG$INSTALL_DIR/$APP_EXE"
+          ln -s "$INSTALL_DIR/$APP_EXE" "$PKG/usr/bin/$APP_SLUG"
+
+          cat > "$PKG/usr/share/applications/${APP_SLUG}.desktop" <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=${APP_NAME}
+          Exec=/usr/bin/${APP_SLUG}
+          Terminal=false
+          Categories=Office;Finance;
+          EOF
+
+          SIZE_KB="$(du -sk "$PKG$INSTALL_DIR" | cut -f1)"
+          cat > "$PKG/DEBIAN/control" <<EOF
+          Package: ${APP_SLUG}
+          Version: ${DEB_VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Installed-Size: ${SIZE_KB}
+          Maintainer: Matteo Menichetti
+          Depends: libc6, libx11-6, libice6, libsm6, libfontconfig1
+          Description: ${APP_NAME}
+           Gestione di fogli di calcolo per costi (affitto, telefono, stipendio).
+          EOF
+
+          find "$PKG" -type d -exec chmod 755 {} +
+
+          dpkg-deb --build --root-owner-group "$PKG" \
+            "out/${APP_FILE}-${SEMVER}-linux-amd64.deb"
+
+      - name: Show output
+        run: ls -lh out/
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.rid }}
+          path: out/*
+          retention-days: 14
+          if-no-files-found: error
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 3 – RELEASE (non gira sulle pull request)
+  # ══════════════════════════════════════════════════════════════════════════
+  release:
+    name: GitHub Release
+    needs: [version, build]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all packages
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: package-*
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
+          ls -lh
+
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name:         ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name:             "Release ${{ needs.version.outputs.semver }}"
+          prerelease:       ${{ needs.version.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: artifacts/*
+          body: |
+            ## Installazione
+
+            | Piattaforma | File |
+            |---|---|
+            | Windows x64 | `GestioneConti-<versione>-win-x64-setup.exe` |
+            | macOS Apple Silicon | `GestioneConti-<versione>-osx-arm64.dmg` |
+            | macOS Intel | `GestioneConti-<versione>-osx-x64.dmg` |
+            | Linux x64 (Debian/Ubuntu) | `GestioneConti-<versione>-linux-amd64.deb` |
+
+            I pacchetti sono **self-contained**: non serve installare .NET.
+            Non sono firmati, quindi:
+
+            - **Windows**: SmartScreen → "Ulteriori informazioni" → "Esegui comunque".
+            - **macOS**: dopo aver trascinato l'app in Applicazioni, esegui
+              `xattr -dr com.apple.quarantine /Applications/GestioneConti.app`
+            - **Linux**: `sudo apt install ./GestioneConti-<versione>-linux-amd64.deb`
