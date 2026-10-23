@@ -27,7 +27,7 @@ jobs:
         dotnet-version: 10.0.x
 
     - name: Restore
-      run: dotnet restore ${{ env.Project_Path }}
+      run: dotnet restore ${{ env.Project_Path }} --runtime win-x64
 
     - name: Publish (self-contained, win-x64)
       run: >
