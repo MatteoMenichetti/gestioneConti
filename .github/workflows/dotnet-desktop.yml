@@ -2,39 +2,56 @@ name: .NET Core Desktop Release
 
 on:
   push:
-   branches: ["main"]
+    branches: ["main"]
+  workflow_dispatch:
 
 permissions:
-  contents: write # Permesso fondamentale per creare la Release su GitHub
+  contents: write # necessario per creare la Release su GitHub
 
 jobs:
   build-and-release:
     runs-on: windows-latest
 
     env:
-      Solution_Name: FormatoFogliSpesa.slnx
-      Wap_Project_Directory: ./
-      Wap_Project_Path: .\FormatoFogliSpesa\FormatoFogliSpesa.csproj
-      Configuration: Release # Fissato su Release per la versione finale
+      Project_Path: FormatoFogliSpesa/FormatoFogliSpesa.csproj
+      App_Name: FormatoFogliSpesa
+      Configuration: Release
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
-    - name: Install .NET Core
+    - name: Install .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 8.0.x
+        dotnet-version: 10.0.x
 
-    - name: Setup MSBuild.exe
-      uses: microsoft/setup-msbuild@v2
+    - name: Restore
+      run: dotnet restore ${{ env.Project_Path }}
 
-    - name: Restore the application
-      run: msbuild $env:Solution_Name /t:Restore /p:Configuration=$env:Configuration
+    - name: Publish (self-contained, win-x64)
+      run: >
+        dotnet publish ${{ env.Project_Path }}
+        --configuration ${{ env.Configuration }}
+        --runtime win-x64
+        --self-contained true
+        --no-restore
+        --output publish
 
-    - name: Decode the pfx
-      run: |
-        $pfx_cert_byte = [System.Convert]::FromBase64String("${{ secrets.Base64_Encoded_Pfx }}")
-        $certificatePath = Join-Path -Path $env
+    - name: Create zip
+      shell: pwsh
+      run: Compress-Archive -Path publish\* -DestinationPath "${{ env.App_Name }}-win-x64.zip"
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.App_Name }}-win-x64
+        path: ${{ env.App_Name }}-win-x64.zip
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v1.0.${{ github.run_number }}
+        name: Release v1.0.${{ github.run_number }}
+        generate_release_notes: true
+        files: ${{ env.App_Name }}-win-x64.zip
